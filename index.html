@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>MyFlicker Work v5.3 — 众生世界</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='14' width='24' height='14' fill='%237a5230'/%3E%3Crect x='4' y='10' width='24' height='6' fill='%234caf50'/%3E%3Ccircle cx='24' cy='7' r='3' fill='%23ffd24a'/%3E%3C/svg%3E" />
+  <style>
+    /* ===== Reset ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
+    /* 移动端：禁止浏览器手势（滚动/缩放/长按呼出菜单），触摸全部交给游戏 */
+    body {
+      position: fixed; inset: 0;
+      touch-action: none; overscroll-behavior: none;
+      -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+    }
+
+    /* ===== Canvas ===== */
+    #game-canvas { display: block; width: 100%; height: 100%; cursor: none; touch-action: none; }
+
+    /* ===== HUD ===== */
+    #hud { position: fixed; inset: 0; pointer-events: none; user-select: none; }
+
+    /* 轻微暗角，增强沉浸感 */
+    #vignette {
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,0.32) 100%);
+    }
+
+    /* 水下滤镜 */
+    #water-overlay {
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at center, rgba(20,80,180,0.28), rgba(8,40,120,0.5));
+      opacity: 0; transition: opacity 0.25s;
+    }
+    #water-overlay.on { opacity: 1; }
+
+    /* 准星 */
+    #crosshair {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 22px; height: 22px;
+      transition: transform 0.08s;
+    }
+    #crosshair.hit { transform: translate(-50%, -50%) scale(1.35); }
+    #crosshair::before, #crosshair::after {
+      content: ''; position: absolute;
+      background: rgba(255,255,255,0.92);
+      box-shadow: 0 0 4px rgba(0,0,0,0.6);
+    }
+    #crosshair::before { width: 2px; height: 22px; left: 50%; top: 0; transform: translateX(-50%); }
+    #crosshair::after  { width: 22px; height: 2px; top: 50%; left: 0; transform: translateY(-50%); }
+
+    /* ===== 物品栏 ===== */
+    #hotbar {
+      position: absolute; bottom: 22px; left: 50%;
+      transform: translateX(-50%);
+      pointer-events: all;
+      display: flex; gap: 5px;
+      background: rgba(6,12,24,0.42);
+      padding: 6px 8px;
+      border-radius: 10px;
+      border: 1px solid rgba(120,200,255,0.18);
+      backdrop-filter: blur(6px);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+    .hotbar-slot {
+      width: 54px; height: 54px;
+      background: rgba(0,0,0,0.45);
+      border: 1.5px solid rgba(255,255,255,0.16);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      position: relative; cursor: pointer;
+      transition: border-color 0.12s, background 0.12s, transform 0.12s;
+    }
+    .hotbar-slot.active {
+      border-color: rgba(255,205,90,0.95);
+      background: rgba(255,205,90,0.10);
+      box-shadow: 0 0 12px rgba(255,205,90,0.35);
+      transform: translateY(-3px);
+    }
+    .hotbar-slot .slot-icon { width: 36px; height: 36px; image-rendering: pixelated; border-radius: 3px; }
+    .hotbar-slot .slot-num {
+      position: absolute; bottom: 2px; right: 5px;
+      font-size: 10px; color: rgba(255,255,255,0.55);
+    }
+    .hotbar-slot .slot-name {
+      position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+      font-size: 10px; color: rgba(255,220,140,0.95); white-space: nowrap;
+      opacity: 0; transition: opacity 0.15s; text-shadow: 0 1px 3px #000;
+    }
+    .hotbar-slot.active .slot-name { opacity: 1; }
+
+    /* ===== 调试信息 ===== */
+    #debug {
+      position: absolute; top: 12px; left: 12px;
+      font-size: 12px; color: rgba(210,235,255,0.88);
+      text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+      line-height: 1.7; white-space: pre;
+      background: rgba(6,12,24,0.38);
+      padding: 6px 10px; border-radius: 6px;
+      border: 1px solid rgba(120,200,255,0.12);
+      backdrop-filter: blur(3px);
+    }
+
+    /* ===== 小地图 ===== */
+    #minimap-wrap {
+      position: absolute; top: 12px; right: 12px;
+      border-radius: 10px; overflow: hidden;
+      border: 1px solid rgba(120,200,255,0.25);
+      box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+      background: rgba(6,12,24,0.5);
+    }
+    #minimap { display: block; width: 148px; height: 148px; image-rendering: pixelated; }
+    #minimap-label {
+      position: absolute; bottom: 3px; left: 0; right: 0;
+      text-align: center; font-size: 9px; letter-spacing: 0.15em;
+      color: rgba(180,220,255,0.7); text-shadow: 0 1px 2px #000;
+    }
+
+    /* ===== 操作提示 ===== */
+    #hint {
+      position: absolute; top: 172px; right: 12px;
+      font-size: 11px; color: rgba(255,255,255,0.52);
+      text-align: right; line-height: 1.9;
+      background: rgba(6,12,24,0.32);
+      padding: 6px 10px; border-radius: 6px;
+    }
+    #hint b { color: rgba(255,205,90,0.85); font-weight: 400; }
+
+    /* ===== 开发标识（v4.8） ===== */
+    #dev-badge {
+      position: absolute; bottom: 10px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px; letter-spacing: 0.12em;
+      color: rgba(190,225,255,0.55);
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+      background: rgba(6,12,24,0.35);
+      padding: 3px 12px; border-radius: 999px;
+      border: 1px solid rgba(120,200,255,0.14);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    /* ===== Toast 成就提示 ===== */
+    #toasts {
+      position: absolute; top: 60px; left: 50%;
+      transform: translateX(-50%);
+      display: flex; flex-direction: column; gap: 8px; align-items: center;
+    }
+    .toast {
+      padding: 9px 22px;
+      background: linear-gradient(135deg, rgba(20,30,55,0.92), rgba(10,16,32,0.92));
+      border: 1px solid rgba(255,205,90,0.55);
+      border-radius: 999px;
+      color: #ffe9b0; font-size: 13px; letter-spacing: 0.08em;
+      box-shadow: 0 0 22px rgba(255,205,90,0.25), 0 6px 20px rgba(0,0,0,0.5);
+      animation: toast-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1), toast-out 0.4s ease-in 3s forwards;
+      white-space: nowrap;
+    }
+    .toast .t-icon { margin-right: 8px; }
+    @keyframes toast-in  { from { transform: translateY(-24px) scale(0.8); opacity: 0; } }
+    @keyframes toast-out { to   { transform: translateY(-14px); opacity: 0; } }
+
+    /* ===== 开始遮罩 ===== */
+    #overlay {
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse at 50% 120%, rgba(30,80,160,0.35), transparent 55%),
+        radial-gradient(ellipse at 80% -10%, rgba(255,190,60,0.12), transparent 45%),
+        rgba(4,8,18,0.9);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: #fff; z-index: 100;
+      transition: opacity 0.35s, visibility 0.35s;
+    }
+    /* 隐藏时必须同时切 visibility——只靠 opacity+pointer-events:none 不够：
+       子元素（#start-btn / #auth-bar）显式声明了 pointer-events:all 会覆盖父级的 none，
+       透明的按钮仍浮在 z-100 上，压住 z-50 的移动端跳跃/动作键（点击被透明层吞掉）。
+       visibility:hidden 让整棵子树不可命中；再对子树强制 none 双保险。 */
+    #overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+    #overlay.hidden * { pointer-events: none !important; }
+
+    #overlay .logo {
+      font-size: clamp(42px, 9vw, 92px);
+      font-weight: 900; letter-spacing: 0.18em;
+      background: linear-gradient(135deg, #FFD24A 0%, #7DF9AA 40%, #00CFFF 75%, #A78BFA 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text; text-transform: uppercase;
+      margin-bottom: 6px;
+      filter: drop-shadow(0 0 22px rgba(255,210,74,0.3));
+    }
+    #overlay .subtitle {
+      font-size: 17px;
+      font-weight: bold;
+      color: rgba(180,240,255,0.92);
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      text-shadow: 0 0 18px rgba(100,220,255,0.45);
+    }
+    /* 世界统计：「已有 N 位冒险者」，无数据时不占位 */
+    #world-stats {
+      font-size: 12px; color: rgba(255,205,90,0.75);
+      letter-spacing: 0.1em; margin-bottom: 14px; min-height: 15px;
+    }
+    #overlay .features {
+      display: flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+      max-width: 560px; margin-bottom: 28px;
+    }
+    #overlay .feat {
+      font-size: 11px; padding: 5px 13px;
+      border: 1px solid rgba(125,249,170,0.35); border-radius: 999px;
+      color: rgba(200,255,220,0.8); letter-spacing: 0.06em;
+      background: rgba(125,249,170,0.06);
+    }
+
+    #start-btn {
+      padding: 14px 56px;
+      background: linear-gradient(135deg, #FFD24A, #FF9D3C);
+      border: none; border-radius: 8px;
+      font-family: inherit; font-size: 15px; font-weight: 700;
+      letter-spacing: 0.14em; color: #1a1000;
+      cursor: pointer; pointer-events: all;
+      transition: transform 0.15s, box-shadow 0.15s;
+      text-transform: uppercase;
+      box-shadow: 0 0 0 rgba(255,210,74,0);
+    }
+    #start-btn:hover {
+      transform: scale(1.06);
+      box-shadow: 0 0 32px rgba(255,210,74,0.55);
+    }
+
+    .ctrl-grid {
+      display: grid; grid-template-columns: auto auto auto auto;
+      gap: 5px 16px; margin-top: 26px;
+      font-size: 12px; color: rgba(255,255,255,0.45);
+    }
+    .ctrl-grid .key { color: rgba(255,205,90,0.8); text-align: right; }
+
+    /* ===== 登录 / 账号栏（v4.3） ===== */
+    #auth-bar {
+      display: flex; align-items: center; gap: 10px;
+      margin-top: 22px; flex-wrap: wrap; justify-content: center;
+      pointer-events: all; min-height: 34px;
+    }
+    .auth-btn {
+      padding: 8px 18px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(120,200,255,0.4);
+      border-radius: 999px;
+      font-family: inherit; font-size: 12px; letter-spacing: 0.08em;
+      color: rgba(200,230,255,0.92); cursor: pointer;
+      transition: background 0.15s, transform 0.15s;
+    }
+    .auth-btn:hover { background: rgba(120,200,255,0.18); transform: scale(1.04); }
+    .auth-btn.primary {
+      border-color: rgba(255,120,80,0.7);
+      background: linear-gradient(135deg, rgba(255,90,60,0.25), rgba(255,150,60,0.2));
+      color: #ffd9c0;
+    }
+    .auth-btn.ghost { border-color: rgba(255,255,255,0.18); color: rgba(255,255,255,0.55); }
+    .auth-user  { font-size: 13px; color: #ffe9b0; letter-spacing: 0.05em; }
+    .auth-state { font-size: 11px; color: rgba(125,249,170,0.8); }
+    .auth-state.warn { color: rgba(255,180,90,0.95); }
+
+    /* ===== 排行榜面板（v4.3） ===== */
+    #leaderboard-panel {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(3,6,14,0.72); backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+    }
+    #leaderboard-panel.show { display: flex; }
+    #lb-card {
+      width: min(480px, 92vw); max-height: 78vh;
+      background: linear-gradient(160deg, rgba(16,26,48,0.97), rgba(8,12,26,0.97));
+      border: 1px solid rgba(255,205,90,0.35);
+      border-radius: 14px;
+      box-shadow: 0 0 44px rgba(255,205,90,0.15), 0 18px 60px rgba(0,0,0,0.6);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #lb-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      color: #ffe9b0; font-size: 15px; letter-spacing: 0.12em;
+    }
+    #lb-close {
+      background: none; border: none; color: rgba(255,255,255,0.55);
+      font-size: 18px; cursor: pointer; font-family: inherit;
+    }
+    #lb-close:hover { color: #fff; }
+    #lb-list { overflow-y: auto; padding: 8px 10px 14px; }
+    .lb-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 10px; border-radius: 8px;
+      font-size: 13px; color: rgba(225,238,255,0.9);
+    }
+    .lb-row:nth-child(odd) { background: rgba(255,255,255,0.035); }
+    .lb-row.me {
+      background: rgba(255,205,90,0.12);
+      border: 1px solid rgba(255,205,90,0.4);
+      color: #ffe9b0;
+    }
+    .lb-rank { width: 30px; text-align: center; font-size: 14px; }
+    .lb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lb-stat { width: 62px; text-align: right; font-size: 12px; }
+    .lb-time { color: rgba(160,200,255,0.7); }
+    .lb-loading { padding: 30px 10px; text-align: center; color: rgba(255,255,255,0.5); font-size: 13px; }
+
+    /* ===== v5.2：在线玩家面板 ===== */
+    #online-panel {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(3,6,14,0.72); backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+    }
+    #online-panel.show { display: flex; }
+    #online-card {
+      width: min(560px, 94vw); max-height: 80vh;
+      background: linear-gradient(160deg, rgba(8,18,40,0.97), rgba(4,10,24,0.97));
+      border: 1px solid rgba(127,184,255,0.4);
+      border-radius: 14px;
+      box-shadow: 0 0 44px rgba(127,184,255,0.12), 0 18px 60px rgba(0,0,0,0.65);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #online-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      color: #BFE3FF; font-size: 15px; letter-spacing: 0.1em;
+    }
+    #online-close {
+      background: none; border: none; color: rgba(255,255,255,0.5);
+      font-size: 18px; cursor: pointer; font-family: inherit;
+    }
+    #online-close:hover { color: #fff; }
+    #online-list {
+      overflow-y: auto; padding: 10px 12px 14px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .op-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 12px; border-radius: 9px;
+      background: rgba(127,184,255,0.06);
+      border: 1px solid rgba(127,184,255,0.14);
+      transition: background 0.15s;
+    }
+    .op-row:hover { background: rgba(127,184,255,0.13); }
+    .op-row.me { border-color: rgba(127,184,255,0.45); background: rgba(127,184,255,0.14); }
+    .op-avatar { font-size: 22px; width: 28px; text-align: center; flex-shrink: 0; }
+    .op-info { flex: 1; min-width: 0; }
+    .op-name { font-size: 13px; color: #BFE3FF; font-weight: bold;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .op-loc  { font-size: 11px; color: rgba(180,215,255,0.6); margin-top: 2px;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .op-dist { font-size: 12px; color: rgba(140,200,255,0.8); flex-shrink: 0; text-align: right; }
+    #online-empty {
+      padding: 40px 10px; text-align: center;
+      color: rgba(140,190,255,0.45); font-size: 13px;
+    }
+
+    /* ===== v5：在线人数徽标（有其他玩家时才显示） ===== */
+    #online-badge {
+      position: absolute; top: 12px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px; letter-spacing: 0.08em;
+      color: #BFE3FF;
+      background: rgba(6,12,24,0.5);
+      padding: 4px 14px; border-radius: 999px;
+      border: 1px solid rgba(120,200,255,0.3);
+      display: none; pointer-events: none;
+      text-shadow: 0 1px 3px #000;
+    }
+    #online-badge.show { display: block; }
+
+    /* ===== v5：HUD 侧边按钮（图鉴/音乐/回城，小地图左侧竖排） ===== */
+    #hud-btns {
+      position: absolute; top: 12px; right: 168px;
+      display: flex; flex-direction: column; gap: 8px;
+      pointer-events: all;
+    }
+    .hud-btn {
+      width: 40px; height: 40px;
+      background: rgba(6,12,24,0.55);
+      border: 1px solid rgba(120,200,255,0.35);
+      border-radius: 10px; color: rgba(210,235,255,0.9);
+      font-size: 17px; font-family: inherit;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;
+      position: relative;
+      transition: transform 0.1s, background 0.1s;
+    }
+    .hud-btn:hover { background: rgba(120,200,255,0.18); }
+    .hud-btn.pressed { transform: scale(0.9); background: rgba(255,255,255,0.2); }
+    .hud-btn::after { content: ''; position: absolute; inset: -6px; }
+    .hud-btn .hb-key {
+      position: absolute; bottom: -3px; right: -3px;
+      font-size: 8px; color: rgba(255,205,90,0.85);
+      background: rgba(6,12,24,0.85); border-radius: 4px;
+      padding: 1px 4px; pointer-events: none;
+    }
+
+    /* ===== v5：回城吟唱进度条 ===== */
+    #cast-bar {
+      position: absolute; bottom: 120px; left: 50%;
+      transform: translateX(-50%);
+      width: 210px; height: 10px;
+      background: rgba(6,12,24,0.6);
+      border: 1px solid rgba(120,200,255,0.4);
+      border-radius: 999px; overflow: hidden;
+      display: none;
+    }
+    #cast-bar.show { display: block; }
+    #cast-fill {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, #7DF9AA, #00CFFF);
+      border-radius: 999px;
+      transition: width 0.1s linear;
+    }
+
+    /* ===== v5：成就图鉴面板（复用排行榜面板风格） ===== */
+    #ach-panel {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(3,6,14,0.72); backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+    }
+    #ach-panel.show { display: flex; }
+    #ach-card {
+      width: min(520px, 92vw); max-height: 78vh;
+      background: linear-gradient(160deg, rgba(16,26,48,0.97), rgba(8,12,26,0.97));
+      border: 1px solid rgba(255,205,90,0.35);
+      border-radius: 14px;
+      box-shadow: 0 0 44px rgba(255,205,90,0.15), 0 18px 60px rgba(0,0,0,0.6);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #ach-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      color: #ffe9b0; font-size: 15px; letter-spacing: 0.12em;
+    }
+    #ach-close {
+      background: none; border: none; color: rgba(255,255,255,0.55);
+      font-size: 18px; cursor: pointer; font-family: inherit;
+    }
+    #ach-close:hover { color: #fff; }
+    #ach-list {
+      overflow-y: auto; padding: 8px 10px 14px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    }
+    @media (max-width: 480px) { #ach-list { grid-template-columns: 1fr; } }
+    .ach-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border-radius: 8px;
+      background: rgba(255,255,255,0.035);
+    }
+    .ach-row.got {
+      background: rgba(255,205,90,0.1);
+      border: 1px solid rgba(255,205,90,0.35);
+    }
+    .ach-ico { font-size: 20px; width: 26px; text-align: center; }
+    .ach-row.lock .ach-ico { filter: grayscale(1) brightness(0.5); }
+    .ach-t { flex: 1; min-width: 0; }
+    .ach-name { font-size: 12px; color: #ffe9b0; }
+    .ach-row.lock .ach-name { color: rgba(255,255,255,0.4); }
+    .ach-desc {
+      font-size: 10px; color: rgba(200,220,255,0.55);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+
+    /* ===== 移动端控件 ===== */
+    #mobile-controls {
+      position: fixed; inset: 0;
+      pointer-events: none; display: none; z-index: 50;
+    }
+    @media (max-width: 768px), (pointer: coarse) {
+      #mobile-controls { display: block; }
+      #hint { display: none; }
+      #minimap { width: 92px; height: 92px; }
+      #debug { font-size: 10px; padding: 4px 8px; line-height: 1.55; }
+      .hotbar-slot { width: 44px; height: 44px; flex: 0 0 44px; }
+      .hotbar-slot .slot-icon { width: 27px; height: 27px; }
+      .hotbar-slot .slot-name { display: none; }
+      #hotbar {
+        bottom: calc(8px + env(safe-area-inset-bottom));
+        gap: 3px; padding: 4px 5px;
+        max-width: 96vw; overflow-x: auto;
+        touch-action: pan-x;                /* 物品多时可横向滑动 */
+        scrollbar-width: none;
+      }
+      #hotbar::-webkit-scrollbar { display: none; }
+      .ctrl-grid { display: none; }
+      #overlay { touch-action: pan-y; overflow-y: auto; padding: 20px 0; }
+      /* 底部被物品栏占用，开发标识挪到顶部居中（toasts 在 60px，不冲突） */
+      #dev-badge { bottom: auto; top: calc(8px + env(safe-area-inset-top)); font-size: 9px; }
+      /* v5.3：HUD 侧边按钮横排，放在菜单键左侧；44px 更好按 */
+      #hud-btns {
+        top: calc(112px + env(safe-area-inset-top));
+        right: calc(64px + env(safe-area-inset-right));
+        flex-direction: row;
+      }
+      .hud-btn { width: 44px; height: 44px; font-size: 16px; }
+      #online-badge { top: calc(36px + env(safe-area-inset-top)); font-size: 10px; }
+      #cast-bar { bottom: calc(184px + env(safe-area-inset-bottom)); }
+    }
+
+    /* 动态摇杆：默认停靠左下（仅指示），触摸左侧屏幕任意位置时吸附到指尖处。
+       触摸统一由 canvas 接管，摇杆层不拦截事件 */
+    #joystick-zone {
+      position: absolute;
+      bottom: calc(92px + env(safe-area-inset-bottom));
+      left: calc(18px + env(safe-area-inset-left));
+      width: 130px; height: 130px; pointer-events: none;
+      transition: opacity 0.2s;
+      opacity: 0.55;
+    }
+    #joystick-zone.active { opacity: 1; transition: none; }
+    #joystick-bg {
+      width: 100%; height: 100%;
+      background: rgba(255,255,255,0.07);
+      border: 2px solid rgba(255,255,255,0.18);
+      border-radius: 50%;
+    }
+    #joystick-zone.active #joystick-bg {
+      border-color: rgba(125,249,170,0.45);
+      background: rgba(125,249,170,0.06);
+    }
+    #joystick-knob {
+      position: absolute; width: 54px; height: 54px;
+      background: radial-gradient(circle, rgba(255,255,255,0.5), rgba(255,255,255,0.15));
+      border-radius: 50%;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(255,255,255,0.3);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    }
+
+    /* 右侧动作键：2×2 网格（飞行/互动 上排，破坏/放置 下排）
+       padding 是"吞噬区"：脱靶几像素落在容器上被吞掉，不会漏到 canvas 把视角甩飞
+       v5.3：right 从 4px → 22px，与系统边缘手势区保持距离；按钮 64→72px */
+    #action-buttons {
+      position: absolute;
+      right: calc(22px + env(safe-area-inset-right));
+      bottom: calc(178px + env(safe-area-inset-bottom));
+      display: grid; grid-template-columns: repeat(2, auto);
+      gap: 10px; padding: 8px; pointer-events: all;
+      /* 半透明背景帮助视觉感知触控区边界 */
+      background: rgba(0,0,0,0.08); border-radius: 18px;
+    }
+    .action-btn {
+      position: relative;
+      width: 72px; height: 72px;
+      background: rgba(0,0,0,0.48);
+      border: 2px solid rgba(255,255,255,0.22);
+      border-radius: 50%; color: #fff;
+      font-size: 11px; font-family: inherit;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 1px;
+      cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;
+      transition: transform 0.08s, background 0.08s;
+    }
+    .action-btn .ab-ico { font-size: 20px; line-height: 1; pointer-events: none; }
+    .action-btn.place { border-color: rgba(125,249,170,0.6); }
+    .action-btn.break { border-color: rgba(255,100,100,0.6); }
+    .action-btn.fly   { border-color: rgba(120,200,255,0.6); }
+    .action-btn.interact { border-color: rgba(255,205,90,0.65); }
+    /* 按压反馈（JS 加 .pressed，比 :active 在触屏上可靠） */
+    .action-btn.pressed, #jump-btn.pressed, #btn-desc.pressed {
+      transform: scale(0.88);
+      background: rgba(255,255,255,0.25);
+    }
+    /* 触控命中区扩展：视觉圆钮不变，实际可点范围向外扩 16px——
+       跑动中拇指盲按偏几像素也能命中；相邻按钮间距 10px 不会互相重叠 */
+    .action-btn::after, #jump-btn::after, #btn-desc::after, #menu-btn::after {
+      content: ''; position: absolute; inset: -16px;
+    }
+    /* 跳跃键下方紧邻物品栏：底部扩展收窄，防止误吞物品栏最右格的点击 */
+    #jump-btn::after { bottom: -4px; }
+
+    /* 跳跃：最高频操作，88px 大按钮，底部正中靠右 */
+    #jump-btn {
+      position: absolute;
+      bottom: calc(68px + env(safe-area-inset-bottom));
+      right: calc(22px + env(safe-area-inset-right));
+      width: 88px; height: 88px;
+      background: rgba(0,0,0,0.48);
+      border: 2px solid rgba(255,205,90,0.65);
+      border-radius: 50%; color: #fff;
+      font-size: 12px; font-family: inherit;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 2px;
+      cursor: pointer; pointer-events: all;
+      user-select: none; -webkit-tap-highlight-color: transparent;
+      transition: transform 0.08s, background 0.08s;
+    }
+    #jump-btn .ab-ico { font-size: 24px; line-height: 1; pointer-events: none; }
+
+    /* 飞行时才出现的下降键：跳跃键正左侧 */
+    #btn-desc {
+      position: absolute;
+      bottom: calc(74px + env(safe-area-inset-bottom));
+      right: calc(130px + env(safe-area-inset-right));
+      width: 68px; height: 68px;
+      background: rgba(0,0,0,0.48);
+      border: 2px solid rgba(120,200,255,0.6);
+      border-radius: 50%; color: #fff;
+      font-size: 11px; font-family: inherit;
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center; gap: 1px;
+      cursor: pointer; pointer-events: all;
+      user-select: none; -webkit-tap-highlight-color: transparent;
+      transition: transform 0.08s, background 0.08s;
+    }
+    #btn-desc.show { display: flex; }
+    #btn-desc .ab-ico { font-size: 18px; line-height: 1; pointer-events: none; }
+
+    /* 移动端菜单键（回到开始页 → 登录/排行榜/昵称入口） */
+    #menu-btn {
+      position: absolute;
+      top: calc(112px + env(safe-area-inset-top));
+      right: calc(12px + env(safe-area-inset-right));
+      width: 42px; height: 42px;
+      background: rgba(6,12,24,0.55);
+      border: 1px solid rgba(120,200,255,0.35);
+      border-radius: 10px; color: rgba(210,235,255,0.9);
+      font-size: 17px; font-family: inherit;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; pointer-events: all;
+      user-select: none; -webkit-tap-highlight-color: transparent;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="game-canvas"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="vignette"></div>
+  <div id="water-overlay"></div>
+  <div id="crosshair"></div>
+  <div id="hotbar"></div>
+  <div id="debug"></div>
+  <div id="minimap-wrap">
+    <canvas id="minimap" width="148" height="148"></canvas>
+    <div id="minimap-label">MAP</div>
+  </div>
+  <div id="hint">
+    <b>左键</b> 破坏 · <b>右键</b> 放置<br>
+    <b>E</b> 摸动物 / 和村民聊天<br>
+    <b>滚轮 / 1~0</b> 切换方块<br>
+    <b>WASD</b> 移动 · <b>空格</b> 跳跃（可按住连跳）<br>
+    <b>双击空格</b> 飞行模式（可穿墙）<br>
+    <b>Shift</b> 冲刺 / 飞行加速 / 飞行下降<br>
+    <b>Tab</b> 成就图鉴 · <b>M</b> 音乐<br>
+    <b>H</b> 回出生点 · <b>P</b> 在线玩家 · <b>ESC</b> 暂停
+  </div>
+  <div id="online-badge">👻 1 位冒险者在线</div>
+  <div id="hud-btns">
+    <button class="hud-btn" id="hud-ach">🏅<span class="hb-key">Tab</span></button>
+    <button class="hud-btn" id="hud-bgm">🎵<span class="hb-key">M</span></button>
+    <button class="hud-btn" id="hud-home">🏠<span class="hb-key">H</span></button>
+    <button class="hud-btn" id="hud-online">👥<span class="hb-key">P</span></button>
+  </div>
+  <div id="cast-bar"><div id="cast-fill"></div></div>
+  <div id="toasts"></div>
+  <div id="dev-badge">⚡ MyFlicker World v5.3 · 由 MyFlicker 2.0 Code 全新能力开发</div>
+</div>
+
+<!-- 开始遮罩 -->
+<div id="overlay">
+  <div class="logo">MyFlicker World</div>
+  <div class="subtitle">v5 众生世界 · 由 MyFlicker 2.0 Code 全新能力开发</div>
+  <div id="world-stats"></div>
+  <div class="features">
+    <span class="feat">🐑 9 种像素动物</span>
+    <span class="feat">🏘️ 6 座村庄 · 村民昼夜作息</span>
+    <span class="feat">🗿 野外遗迹探索</span>
+    <span class="feat">👻 幽灵玩家 · 多人在线</span>
+    <span class="feat">⭐ 星星收集 · 彩虹星</span>
+    <span class="feat">🎵 环境音乐 BGM</span>
+    <span class="feat">🌍 生物群系地形</span>
+    <span class="feat">🌊 可游泳的海洋</span>
+    <span class="feat">🌧️ 动态天气</span>
+    <span class="feat">🪰 夜晚萤火虫</span>
+    <span class="feat">🌗 星空日月昼夜</span>
+    <span class="feat">🕊️ 飞行模式</span>
+    <span class="feat">🗺️ 小地图 · 探索指引</span>
+    <span class="feat">🏅 28 项成就图鉴</span>
+    <span class="feat">🏠 一键回出生点</span>
+    <span class="feat">☁️ 快手账号云存档</span>
+    <span class="feat">🏆 玩家排行榜</span>
+    <span class="feat">✏️ 自定义昵称</span>
+    <span class="feat">📣 一键邀请好友</span>
+    <span class="feat">💾 自动存档</span>
+  </div>
+  <button id="start-btn">进入世界</button>
+  <div id="auth-bar"></div>
+  <div class="ctrl-grid">
+    <span class="key">WASD</span><span>移动</span>
+    <span class="key">空格</span><span>跳跃 / 游泳上浮</span>
+    <span class="key">双击空格</span><span>飞行开关（可穿墙）</span>
+    <span class="key">Shift</span><span>冲刺 / 飞行加速 / 下降</span>
+    <span class="key">E</span><span>摸动物 / 聊天</span>
+    <span class="key">Tab</span><span>成就图鉴</span>
+    <span class="key">M</span><span>音乐开关</span>
+    <span class="key">H</span><span>回出生点</span>
+    <span class="key">鼠标</span><span>视角</span>
+    <span class="key">左键</span><span>破坏方块</span>
+    <span class="key">右键</span><span>放置方块</span>
+  </div>
+</div>
+
+<!-- 排行榜面板（v4.3） -->
+<div id="leaderboard-panel">
+  <div id="lb-card">
+    <div id="lb-head">
+      <span>🏆 玩家排行榜</span>
+      <button id="lb-close">✕</button>
+    </div>
+    <div id="lb-list"></div>
+  </div>
+</div>
+
+  <div id="online-panel">
+    <div id="online-card">
+      <div id="online-head">
+        <span id="online-title">👻 在线玩家</span>
+        <button id="online-close">✕</button>
+      </div>
+      <div id="online-list"></div>
+    </div>
+  </div>
+
+  <!-- 成就图鉴面板（v5） -->
+<div id="ach-panel">
+  <div id="ach-card">
+    <div id="ach-head">
+      <span id="ach-title">🏅 成就图鉴</span>
+      <button id="ach-close">✕</button>
+    </div>
+    <div id="ach-list"></div>
+  </div>
+</div>
+
+<!-- 移动端控件 -->
+<div id="mobile-controls">
+  <div id="joystick-zone">
+    <div id="joystick-bg"></div>
+    <div id="joystick-knob"></div>
+  </div>
+  <button id="jump-btn"><span class="ab-ico">⬆️</span>跳跃</button>
+  <button id="btn-desc"><span class="ab-ico">⬇️</span>下降</button>
+  <div id="action-buttons">
+    <button class="action-btn fly"      id="btn-fly"><span class="ab-ico">🕊️</span>飞行</button>
+    <button class="action-btn interact" id="btn-interact"><span class="ab-ico">💕</span>互动</button>
+    <button class="action-btn break"    id="btn-break"><span class="ab-ico">⛏️</span>破坏</button>
+    <button class="action-btn place"    id="btn-place"><span class="ab-ico">🧱</span>放置</button>
+  </div>
+  <button id="menu-btn">☰</button>
+</div>
+
+<!-- Three.js + Appwrite SDK 本地 vendor -->
+<script src="vendor/three.min.js"></script>
+<script src="vendor/appwrite-sdk.js"></script>
+
+<!-- 游戏模块（顺序加载） -->
+<script src="js/audio.js"></script>
+<script src="js/blocks.js"></script>
+<script src="js/world.js"></script>
+<script src="js/village.js"></script>
+<script src="js/wilds.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/physics.js"></script>
+<script src="js/controls.js"></script>
+<script src="js/interaction.js"></script>
+<script src="js/effects.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/game.js"></script>
+<script src="js/ghosts.js"></script>
+<script src="js/cloud.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,11 @@
+# 内网配置与凭证：不得进入公开仓库
+.appwrite-cf
+appwrite-cf.config.json
+.static-site-deploy.json
+
+# 内网专用 Appwrite SDK：仅本地与内网部署使用
+vendor/appwrite-sdk.js
+
+.DS_Store
+dist/
+__pycache__/
