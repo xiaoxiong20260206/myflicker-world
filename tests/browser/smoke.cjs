@@ -24,7 +24,8 @@ const puppeteer = require(process.env.PUPPETEER_MODULE || 'puppeteer-core');
       if (new URL(target).pathname.startsWith('/v1')) cloudCalls.push(target);
     });
 
-    await page.goto(url, { waitUntil: 'networkidle0', timeout: 60000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForSelector('#start-btn', { timeout: 30000 });
     const title = await page.title();
     if (!/MyFlicker/i.test(title)) throw new Error(`unexpected title: ${title}`);
 
