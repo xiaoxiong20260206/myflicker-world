@@ -11,7 +11,11 @@ from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
-PUBLISHED = ['index.html', *[f'js/{p.name}' for p in sorted((ROOT / 'js').glob('*.js'))]]
+PUBLISHED = [
+    'index.html',
+    *[f'js/{p.name}' for p in sorted((ROOT / 'js').glob('*.js'))],
+    'vendor/three.min.js',
+]
 # 内网专用 Appwrite SDK 不进入公开仓库与公开站点，云功能由 cloud.js 的主机名判断关闭。
 INTERNAL_SDK = '<script src="vendor/appwrite-sdk.js"></script>'
 
